@@ -1,0 +1,64 @@
+##############################################################################
+# Harness Continuous Verification — Verify Step
+#
+# Add this step to your CD pipeline AFTER the Helm deploy step and BEFORE
+# any production traffic cut-over or canary promotion.
+#
+# Placement in pipeline:
+#   stages:
+#     - stage:
+#         type: Deployment
+#         spec:
+#           execution:
+#             steps:
+#               - step:  <-- Helm deploy / Rolling update
+#               - step:  <-- THIS VERIFY STEP  (paste below)
+#               - step:  <-- Approval / next stage
+##############################################################################
+
+- step:
+    type: Verify
+    name: CV - Dynatrace Health Check
+    identifier: CV_Dynatrace_Health_Check
+    timeout: 2h
+    spec:
+      # Reference the Monitored Service created from monitored-service.yaml.
+      # Format: <serviceRef>_<environmentRef>  (must match monitoredService.identifier)
+      monitoredServiceRef: HelloWorldDotNet_production
+
+      type: Rolling          # Verification type: Rolling | Canary | BlueGreen
+                             # Change to Canary if using canary deployment strategy.
+
+      spec:
+        sensitivity: MEDIUM  # LOW | MEDIUM | HIGH
+                             # MEDIUM = balanced; use HIGH for zero-tolerance gates.
+        duration: 15m        # How long to analyse post-deployment traffic.
+                             # 15 min is enough for a demo; use 30–60 min in prod.
+        deploymentTag: <+pipeline.sequenceId>  # Unique tag per deployment run.
+
+      # Fail the pipeline if CV detects a regression.
+      # Remove failureStrategies or set action: Ignore to make it advisory-only.
+    failureStrategies:
+      - onFailure:
+          errors:
+            - Verification
+          action:
+            type: ManualIntervention
+            spec:
+              timeout: 2h
+              onTimeout:
+                action:
+                  type: MarkAsFailure
+
+##############################################################################
+# DEMO SCRIPT — how to trigger a failure for the presentation
+# ---------------------------------------------------------------
+# 1. Deploy v1 (clean build) — CV should PASS.
+# 2. Add a 500ms artificial delay to the controller (e.g. Thread.Sleep(500))
+#    OR simply hammer the /insecure-sql endpoint to spike the error rate:
+#      while true; do curl http://<SERVICE_IP>/insecure-sql; sleep 0.1; done
+# 3. Deploy v2 — CV detects:
+#      - Response Time (P90) regression vs baseline  → MEDIUM risk
+#      - Error Rate spike → HIGH risk → pipeline FAILS
+# 4. Show Harness CV waterfall view and Dynatrace service dashboard side-by-side.
+##############################################################################

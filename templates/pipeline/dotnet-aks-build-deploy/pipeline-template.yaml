@@ -1,0 +1,328 @@
+template:
+  name: HelloWorldDotNet Build and Deploy
+  identifier: HelloWorldDotNet_Build_and_Deploy
+  versionLabel: v1
+  type: Pipeline
+  orgIdentifier: default
+  projectIdentifier: default_project
+  description: >-
+    Pipeline template for building and deploying HelloWorldDotNet to AKS.
+    Includes AI code quality, SCA/SAST, container scans, SBOM, canary deployment
+    with Dynatrace continuous verification, and rolling promotion.
+  tags:
+    app: hello-world-dotnet
+
+  spec:
+    properties:
+      ci:
+        codebase:
+          repoName: HelloWorldDotNet
+          build: <+input>
+
+    variables:
+      - name: imagetag
+        type: String
+        description: ""
+        required: false
+        value: <+pipeline.sequenceId>
+      - name: imagename
+        type: String
+        description: This is the image name which is made up of registry/imagename
+        required: false
+        value: helloworld
+      - name: registryname
+        type: String
+        description: ""
+        required: false
+        value: wlxcontainersharness.azurecr.io
+
+    allowStageExecutions: true
+
+    stages:
+      ########################################################################
+      # STAGE 1 — Build
+      ########################################################################
+      - stage:
+          name: Build
+          identifier: Build
+          description: ""
+          type: CI
+          spec:
+            cloneCodebase: true
+            caching:
+              enabled: false
+              override: true
+              paths: []
+            buildIntelligence:
+              enabled: false
+            infrastructure:
+              type: KubernetesDirect
+              spec:
+                connectorRef: AKSSandpitConnector
+                namespace: default
+                automountServiceAccountToken: true
+                nodeSelector: {}
+                os: Linux
+            execution:
+              steps:
+                # ── AI Code Quality ──────────────────────────────────────────
+                - stepGroup:
+                    name: Check_Code_Quality_Using_AI
+                    identifier: Check_Code_Quality_Using_AI
+                    template:
+                      templateRef: org.Check_Code_Quality_Using_AI
+                      versionLabel: v4
+                      templateInputs:
+                        steps:
+                          - step:
+                              identifier: AI_Code_Quality_Check
+                              type: Plugin
+                              spec:
+                                settings:
+                                  llm_provider: anthropic
+                                  api_key: <+secrets.getValue("org.ANTHROPIC_API_KEY")>
+                                  model: claude-haiku-4-5-20251001
+                                  scan_paths: src/hello-world-dotnet
+                                  file_extensions: cs
+                                  max_files: "30"
+                                  timeout_seconds: "180"
+                          - step:
+                              identifier: AI_Code_Quality_Full_Audit
+                              type: Plugin
+                              spec:
+                                settings:
+                                  llm_provider: anthropic
+                                  api_key: <+secrets.getValue("org.ANTHROPIC_API_KEY")>
+                                  model: claude-sonnet-4-6
+                                  scan_paths: src/hello-world-dotnet
+                                  file_extensions: cs
+                                  max_files: "30"
+                                  timeout_seconds: "300"
+
+                # ── SCA & SAST ───────────────────────────────────────────────
+                - stepGroup:
+                    name: SCA And SAST SCans
+                    identifier: SCA_And_SAST_SCans
+                    template:
+                      templateRef: org.SecurityScans
+                      versionLabel: v1
+
+                # ── Unit Tests ───────────────────────────────────────────────
+                - step:
+                    type: Test
+                    name: Testing
+                    identifier: Testing
+                    spec:
+                      connectorRef: DockerHub
+                      image: mcr.microsoft.com/dotnet/sdk:8.0
+                      shell: Sh
+                      command: |-
+                        dotnet restore
+                        dotnet build
+                        dotnet test tests/hello-world-dotnet.Tests/hello-world-dotnet.Tests.csproj --logger "trx"
+                      intelligenceMode: true
+                    when:
+                      stageStatus: Success
+
+                # ── Build & Push to ACR ──────────────────────────────────────
+                - step:
+                    type: BuildAndPushACR
+                    name: BuildAndPushACR_1
+                    identifier: BuildAndPushACR_1
+                    spec:
+                      connectorRef: account.WOW_SANDPIT
+                      repository: wlxcontainersharness.azurecr.io/helloworld
+                      subscriptionId: c921f180-7308-4ab5-8c55-e307ef108c90
+                      tags:
+                        - latest
+                        - <+pipeline.variables.imagetag>
+                      dockerfile: deploy/docker/Dockerfile
+                      context: .
+                      caching: true
+                      optimize: true
+
+                # ── Container Scans ──────────────────────────────────────────
+                - stepGroup:
+                    name: Container Scans
+                    identifier: Container_Scans
+                    template:
+                      templateRef: org.Container_Scans
+                      versionLabel: v1
+
+                # ── SBOM & Attestation ───────────────────────────────────────
+                - stepGroup:
+                    name: SBOM Generation and Artefact Attestation
+                    identifier: SBOM_Generation_and_Artefact_Attestation
+                    template:
+                      templateRef: org.SBOM_and_Attestations
+                      versionLabel: v1
+                      templateInputs:
+                        steps:
+                          - step:
+                              identifier: SBOM_Orchestration
+                              type: SscaOrchestration
+                              spec:
+                                source:
+                                  type: docker
+                                  spec:
+                                    connector: account.sandpit_container_registry_private
+                                    image: wlxcontainersharness.azurecr.io/helloworld:<+pipeline.variables.imagetag>
+                          - step:
+                              identifier: Artifact_Signing
+                              type: SscaArtifactSigning
+                              spec:
+                                source:
+                                  type: docker
+                                  spec:
+                                    connector: account.sandpit_container_registry_private
+                                    image: wlxcontainersharness.azurecr.io/helloworld:<+pipeline.variables.imagetag>
+
+            sharedPaths:
+              - /var/run
+
+      ########################################################################
+      # STAGE 2 — Deploy
+      ########################################################################
+      - stage:
+          name: Deploy Hello world
+          identifier: Deploy_Hello_world
+          description: ""
+          type: Deployment
+          spec:
+            deploymentType: Kubernetes
+            service:
+              serviceRef: HelloWorldAKSSandpit
+            environment:
+              environmentRef: AKSSandpit2
+              deployToAll: false
+              infrastructureDefinitions:
+                - identifier: AKSSandpit2
+            execution:
+              steps:
+                # ── SBOM Validation ──────────────────────────────────────────
+                - stepGroup:
+                    name: SBOM and Artefact Validations
+                    identifier: SBOM_and_Artefact_Validations
+                    template:
+                      templateRef: org.SBOM_And_Artefact_Attestation_Validation
+                      versionLabel: v1
+                      templateInputs:
+                        steps:
+                          - step:
+                              identifier: SBOMPolicyEnforcement_1
+                              type: SscaEnforcement
+                              spec:
+                                source:
+                                  type: docker
+                                  spec:
+                                    connector: account.sandpit_container_registry_private
+                                    image: wlxcontainersharness.azurecr.io/helloworld:<+pipeline.variables.imagetag>
+                          - step:
+                              identifier: Artifact_Verification
+                              type: SscaArtifactVerification
+                              spec:
+                                source:
+                                  type: docker
+                                  spec:
+                                    connector: account.sandpit_container_registry_private
+                                    image: wlxcontainersharness.azurecr.io/helloworld:<+pipeline.variables.imagetag>
+                        stepGroupInfra:
+                          type: KubernetesDirect
+                          spec:
+                            connectorRef: org.AKSSandpit
+
+                # ── Security Gate ────────────────────────────────────────────
+                - step:
+                    name: Enforce Security Scan Check results
+                    identifier: SecurityChecks
+                    template:
+                      templateRef: org.SecurtiySanityChecks
+                      versionLabel: v1
+
+                # ── Canary Deployment ────────────────────────────────────────
+                - stepGroup:
+                    name: Canary Deployment
+                    identifier: Canary_Deployment
+                    steps:
+                      - step:
+                          type: K8sCanaryDeploy
+                          name: K8sCanaryDeploy
+                          identifier: K8sCanaryDeploy
+                          spec:
+                            skipDryRun: false
+                            instanceSelection:
+                              type: Count
+                              spec:
+                                count: 3
+                          timeout: 10m
+                      - step:
+                          type: Verify
+                          name: Verify Using Dynatrace
+                          identifier: Verify_Using_Dynatrace
+                          spec:
+                            isMultiServicesOrEnvs: false
+                            type: Canary
+                            monitoredService:
+                              type: Default
+                              spec: {}
+                            spec:
+                              sensitivity: HIGH
+                              duration: 10m
+                          timeout: 2h
+                          failureStrategies:
+                            - onFailure:
+                                errors:
+                                  - Verification
+                                action:
+                                  type: StageRollback
+                            - onFailure:
+                                errors:
+                                  - Unknown
+                                action:
+                                  type: StageRollback
+                        contextType: Pipeline
+                      - step:
+                          type: K8sCanaryDelete
+                          name: K8sCanaryDelete
+                          identifier: K8sCanaryDelete
+                          spec: {}
+                          timeout: 10m
+
+                # ── Primary Deployment ───────────────────────────────────────
+                - stepGroup:
+                    name: Primary Deployment
+                    identifier: Primary_Deployment
+                    steps:
+                      - step:
+                          type: K8sRollingDeploy
+                          name: K8sRollingDeploy
+                          identifier: K8sRollingDeploy
+                          spec:
+                            skipDryRun: false
+                            pruningEnabled: false
+                          timeout: 10m
+
+              rollbackSteps:
+                - step:
+                    type: K8sCanaryDelete
+                    name: K8sCanaryDelete
+                    identifier: K8sCanaryDelete
+                    spec: {}
+                    timeout: 10m
+                - step:
+                    type: K8sRollingRollback
+                    name: K8sRollingRollback
+                    identifier: K8sRollingRollback
+                    spec:
+                      pruningEnabled: false
+                    timeout: 10m
+
+          tags: {}
+          failureStrategies:
+            - onFailure:
+                errors:
+                  - AllErrors
+                action:
+                  type: StageRollback
+          delegateSelectors:
+            - helm-delegate-sandpit

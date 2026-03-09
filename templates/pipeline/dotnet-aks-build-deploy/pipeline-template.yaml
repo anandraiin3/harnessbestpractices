@@ -103,8 +103,15 @@ template:
                       command: |-
                         dotnet restore
                         dotnet build
-                        dotnet test tests/hello-world-dotnet.Tests/hello-world-dotnet.Tests.csproj --logger "trx"
+                        dotnet test tests/hello-world-dotnet.Tests/hello-world-dotnet.Tests.csproj \
+                          --logger "trx;LogFileName=test_results.trx" \
+                          --results-directory /tmp/test-results
                       intelligenceMode: true
+                      reports:
+                        type: JUnit
+                        spec:
+                          paths:
+                            - /tmp/test-results/test_results.trx
                     when:
                       stageStatus: Success
                 - step:

@@ -4,7 +4,6 @@ template:
   versionLabel: v1
   type: Pipeline
   orgIdentifier: default
-  projectIdentifier: default_project
   description: >-
     Pipeline template for building and deploying HelloWorldDotNet to AKS.
     Includes AI code quality, SCA/SAST, container scans, SBOM, canary deployment

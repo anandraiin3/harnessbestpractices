@@ -57,8 +57,8 @@ template:
             infrastructure:
               type: KubernetesDirect
               spec:
-                connectorRef: AKSSandpitConnector
-                namespace: default
+                connectorRef: <+input>
+                namespace: <+input>
                 automountServiceAccountToken: true
                 nodeSelector: {}
                 os: Linux
@@ -112,7 +112,7 @@ template:
                     name: Testing
                     identifier: Testing
                     spec:
-                      connectorRef: DockerHub
+                      connectorRef: <+input>
                       image: mcr.microsoft.com/dotnet/sdk:8.0
                       shell: Sh
                       command: |-

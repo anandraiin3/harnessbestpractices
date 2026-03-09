@@ -4,20 +4,15 @@ template:
   versionLabel: v1
   type: Pipeline
   orgIdentifier: default
-  description: >-
-    Pipeline template for building and deploying HelloWorldDotNet to AKS.
-    Includes AI code quality, SCA/SAST, container scans, SBOM, canary deployment
-    with Dynatrace continuous verification, and rolling promotion.
+  description: Pipeline template for building and deploying HelloWorldDotNet to AKS. Includes AI code quality, SCA/SAST, container scans, SBOM, canary deployment with Dynatrace continuous verification, and rolling promotion.
   tags:
     app: hello-world-dotnet
-
   spec:
     properties:
       ci:
         codebase:
           repoName: HelloWorldDotNet
           build: <+input>
-
     variables:
       - name: imagetag
         type: String
@@ -34,13 +29,8 @@ template:
         description: ""
         required: false
         value: wlxcontainersharness.azurecr.io
-
     allowStageExecutions: true
-
     stages:
-      ########################################################################
-      # STAGE 1 — Build
-      ########################################################################
       - stage:
           name: Build
           identifier: Build
@@ -64,7 +54,6 @@ template:
                 os: Linux
             execution:
               steps:
-                # ── AI Code Quality ──────────────────────────────────────────
                 - stepGroup:
                     name: Check_Code_Quality_Using_AI
                     identifier: Check_Code_Quality_Using_AI
@@ -97,16 +86,12 @@ template:
                                   file_extensions: cs
                                   max_files: "30"
                                   timeout_seconds: "300"
-
-                # ── SCA & SAST ───────────────────────────────────────────────
                 - stepGroup:
                     name: SCA And SAST SCans
                     identifier: SCA_And_SAST_SCans
                     template:
                       templateRef: org.SecurityScans
                       versionLabel: v1
-
-                # ── Unit Tests ───────────────────────────────────────────────
                 - step:
                     type: Test
                     name: Testing
@@ -122,8 +107,6 @@ template:
                       intelligenceMode: true
                     when:
                       stageStatus: Success
-
-                # ── Build & Push to ACR ──────────────────────────────────────
                 - step:
                     type: BuildAndPushACR
                     name: BuildAndPushACR_1
@@ -139,16 +122,12 @@ template:
                       context: .
                       caching: true
                       optimize: true
-
-                # ── Container Scans ──────────────────────────────────────────
                 - stepGroup:
                     name: Container Scans
                     identifier: Container_Scans
                     template:
                       templateRef: org.Container_Scans
                       versionLabel: v1
-
-                # ── SBOM & Attestation ───────────────────────────────────────
                 - stepGroup:
                     name: SBOM Generation and Artefact Attestation
                     identifier: SBOM_Generation_and_Artefact_Attestation
@@ -175,13 +154,8 @@ template:
                                   spec:
                                     connector: account.sandpit_container_registry_private
                                     image: wlxcontainersharness.azurecr.io/helloworld:<+pipeline.variables.imagetag>
-
             sharedPaths:
               - /var/run
-
-      ########################################################################
-      # STAGE 2 — Deploy
-      ########################################################################
       - stage:
           name: Deploy Hello world
           identifier: Deploy_Hello_world
@@ -191,14 +165,15 @@ template:
             deploymentType: Kubernetes
             service:
               serviceRef: <+input>
+              serviceInputs: <+input>
             environment:
               environmentRef: <+input>
               deployToAll: false
-              infrastructureDefinitions:
-                - identifier: <+input>
+              environmentInputs: <+input>
+              serviceOverrideInputs: <+input>
+              infrastructureDefinitions: <+input>
             execution:
               steps:
-                # ── SBOM Validation ──────────────────────────────────────────
                 - stepGroup:
                     name: SBOM and Artefact Validations
                     identifier: SBOM_and_Artefact_Validations
@@ -229,16 +204,12 @@ template:
                           type: KubernetesDirect
                           spec:
                             connectorRef: org.AKSSandpit
-
-                # ── Security Gate ────────────────────────────────────────────
                 - step:
                     name: Enforce Security Scan Check results
                     identifier: SecurityChecks
                     template:
                       templateRef: org.SecurtiySanityChecks
                       versionLabel: v1
-
-                # ── Canary Deployment ────────────────────────────────────────
                 - stepGroup:
                     name: Canary Deployment
                     identifier: Canary_Deployment
@@ -252,7 +223,7 @@ template:
                             instanceSelection:
                               type: Count
                               spec:
-                                count: 3
+                                count: <+input>
                           timeout: 10m
                       - step:
                           type: Verify
@@ -286,8 +257,6 @@ template:
                           identifier: K8sCanaryDelete
                           spec: {}
                           timeout: 10m
-
-                # ── Primary Deployment ───────────────────────────────────────
                 - stepGroup:
                     name: Primary Deployment
                     identifier: Primary_Deployment
@@ -300,7 +269,6 @@ template:
                             skipDryRun: false
                             pruningEnabled: false
                           timeout: 10m
-
               rollbackSteps:
                 - step:
                     type: K8sCanaryDelete
@@ -315,7 +283,6 @@ template:
                     spec:
                       pruningEnabled: false
                     timeout: 10m
-
           tags: {}
           failureStrategies:
             - onFailure:

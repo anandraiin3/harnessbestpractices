@@ -70,7 +70,7 @@ template:
                     identifier: Check_Code_Quality_Using_AI
                     template:
                       templateRef: org.Check_Code_Quality_Using_AI
-                      versionLabel: v4
+                      versionLabel: v3
                       templateInputs:
                         steps:
                           - step:

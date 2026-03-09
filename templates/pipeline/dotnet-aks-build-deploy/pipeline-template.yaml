@@ -1,6 +1,6 @@
 template:
-  name: HelloWorldDotNet Build and Deploy
-  identifier: HelloWorldDotNet_Build_and_Deploy
+  name: BuildAndDeployDotNetApps
+  identifier: BuildAndDeployDotNetApps
   versionLabel: v1
   type: Pipeline
   orgIdentifier: default

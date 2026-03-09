@@ -190,12 +190,12 @@ template:
           spec:
             deploymentType: Kubernetes
             service:
-              serviceRef: HelloWorldAKSSandpit
+              serviceRef: <+input>
             environment:
-              environmentRef: AKSSandpit2
+              environmentRef: <+input>
               deployToAll: false
               infrastructureDefinitions:
-                - identifier: AKSSandpit2
+                - identifier: <+input>
             execution:
               steps:
                 # ── SBOM Validation ──────────────────────────────────────────
@@ -323,5 +323,4 @@ template:
                   - AllErrors
                 action:
                   type: StageRollback
-          delegateSelectors:
-            - helm-delegate-sandpit
+          delegateSelectors: <+input>
